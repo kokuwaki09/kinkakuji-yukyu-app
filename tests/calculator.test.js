@@ -89,6 +89,30 @@ test('resolveRequiredBreakMinutes: 境界値の判定', () => {
   assert.equal(resolveRequiredBreakMinutes(9 * 60), 60);
 });
 
+test('不変条件: 全日扱いでは actualMinutes は所定労働時間の半分未満になるため、480分超の分岐には通常到達しない', () => {
+  // 「全日扱い(FULL)」は leaveMinutes > standardMinutes/2 の場合に限られるため、
+  // actualMinutes(= standardMinutes - leaveMinutes) は必ず standardMinutes/2 未満になる。
+  // このアプリが想定する通常所定労働時間は最大8時間(480分)のため、
+  // actualMinutes は常に240分未満となり、resolveRequiredBreakMinutes の
+  // 「480分以上→60分」の分岐には実務上到達しない（常に0分側になる）。
+  const scenarios = [
+    { normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, leaveStart: '09:00', leaveEnd: '14:00' }, // 所定8h
+    { normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, leaveStart: '13:00', leaveEnd: '18:00' }, // 所定8h
+    { normalStart: '08:45', normalEnd: '17:45', normalBreak: 60, leaveStart: '08:45', leaveEnd: '13:45' }, // 所定8h
+    { normalStart: '09:00', normalEnd: '17:00', normalBreak: 0, leaveStart: '09:00', leaveEnd: '14:00' }, // 所定8h(休憩なし)
+    { normalStart: '09:00', normalEnd: '17:30', normalBreak: 30, leaveStart: '09:00', leaveEnd: '14:00' }, // 所定8h
+  ];
+
+  for (const scenario of scenarios) {
+    const result = calculate(makeInput(scenario));
+    assert.equal(result.status, 'FULL');
+    assert.ok(result.data.standardMinutes <= 8 * 60); // このアプリが想定する所定労働時間の上限
+    assert.ok(result.data.actualMinutes < result.data.standardMinutes / 2);
+    assert.ok(result.data.actualMinutes < 8 * 60); // 480分未満 → 「480分以上」の分岐には到達しない
+    assert.equal(result.data.breakDuringWork, 0); // 実務上は常に0分側に判定される
+  }
+});
+
 // --- 仕様書 25章記載の13テストケース（休憩は自動判定に更新） ---
 
 test('TC1: 8時間勤務・午後3時間有給 → 半日・14:45〜17:45', () => {
