@@ -285,6 +285,24 @@ select {
   font-weight: 800;
 }
 
+.result-section-block {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.result-section-block:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.result-break-line {
+  margin: 4px 0 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-sub);
+}
+
 .result-leave-minutes {
   text-align: center;
   margin-top: 10px;

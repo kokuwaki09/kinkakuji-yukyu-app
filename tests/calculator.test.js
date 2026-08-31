@@ -358,3 +358,97 @@ test('実働時間+有給時間=所定労働時間の検算が常に成立する
   );
   assert.equal(full.data.actualMinutes + full.data.leaveMinutes, full.data.standardMinutes);
 });
+
+// --- スケジュール申請フィールドのテスト（結果画面にスケジュール申請も表示する機能追加分） ---
+
+test('TC-S1: 半日有休(PM側) 8:45〜17:45・休憩60・有給14:45〜17:45 → スケジュール8:45〜14:45・休憩60', () => {
+  const input = makeInput({
+    normalStart: '08:45',
+    normalEnd: '17:45',
+    normalBreak: 60,
+    leaveStart: '14:45',
+    leaveEnd: '17:45',
+  });
+  const result = calculate(input);
+  assert.equal(result.status, 'HALF');
+  assert.equal(result.data.pattern, 'PM');
+  assert.equal(minutesToTimeString(result.data.scheduleStart), '08:45');
+  assert.equal(minutesToTimeString(result.data.scheduleEnd), '14:45');
+  assert.equal(result.data.scheduleBreak, 60);
+  // 補助項目側は既存ロジックのまま変わらないことも確認
+  assert.equal(result.data.auxItemName, AUX_ITEM_NAMES.HALF);
+  assert.equal(minutesToTimeString(result.data.auxStart), '14:45');
+  assert.equal(minutesToTimeString(result.data.auxEnd), '17:45');
+});
+
+test('TC-S2: 全日扱い(AM側) 9:00〜18:00・休憩60・有給9:00〜14:00・勤務中休憩0 → スケジュール15:00〜18:00・休憩0', () => {
+  const input = makeInput({
+    normalStart: '09:00',
+    normalEnd: '18:00',
+    normalBreak: 60,
+    leaveStart: '09:00',
+    leaveEnd: '14:00',
+    breakDuringWork: 0,
+  });
+  const result = calculate(input);
+  assert.equal(result.status, 'FULL');
+  assert.equal(result.data.pattern, 'AM');
+  assert.equal(minutesToTimeString(result.data.scheduleStart), '15:00');
+  assert.equal(minutesToTimeString(result.data.scheduleEnd), '18:00');
+  assert.equal(result.data.scheduleBreak, 0);
+  // 補助項目側は既存ロジックのまま変わらないことも確認
+  assert.equal(result.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
+  assert.equal(minutesToTimeString(result.data.auxStart), '09:00');
+  assert.equal(minutesToTimeString(result.data.auxEnd), '15:00');
+});
+
+test('TC-S3: 全日扱い(PM側) 9:00〜18:00・休憩60・有給13:00〜18:00・勤務中休憩0 → スケジュール9:00〜12:00・休憩0', () => {
+  const input = makeInput({
+    normalStart: '09:00',
+    normalEnd: '18:00',
+    normalBreak: 60,
+    leaveStart: '13:00',
+    leaveEnd: '18:00',
+    breakDuringWork: 0,
+  });
+  const result = calculate(input);
+  assert.equal(result.status, 'FULL');
+  assert.equal(result.data.pattern, 'PM');
+  assert.equal(minutesToTimeString(result.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(result.data.scheduleEnd), '12:00');
+  assert.equal(result.data.scheduleBreak, 0);
+  // 補助項目側は既存ロジックのまま変わらないことも確認
+  assert.equal(result.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
+  assert.equal(minutesToTimeString(result.data.auxStart), '12:00');
+  assert.equal(minutesToTimeString(result.data.auxEnd), '18:00');
+});
+
+test('スケジュール実働時間+休憩 と 補助項目時間帯 は所定と有給に整合する（AM側・PM側とも）', () => {
+  // AM側: schedule(実働) + break は 通常勤務終了 - 補助項目終了 と一致するはず
+  const am = calculate(
+    makeInput({
+      normalStart: '09:00',
+      normalEnd: '18:00',
+      normalBreak: 60,
+      leaveStart: '09:00',
+      leaveEnd: '14:00',
+      breakDuringWork: 0,
+    }),
+  );
+  assert.equal(am.data.scheduleStart, am.data.auxEnd);
+  assert.equal(am.data.scheduleEnd - am.data.scheduleStart - am.data.scheduleBreak, am.data.actualMinutes);
+
+  // PM側
+  const pm = calculate(
+    makeInput({
+      normalStart: '09:00',
+      normalEnd: '18:00',
+      normalBreak: 60,
+      leaveStart: '13:00',
+      leaveEnd: '18:00',
+      breakDuringWork: 0,
+    }),
+  );
+  assert.equal(pm.data.scheduleEnd, pm.data.auxStart);
+  assert.equal(pm.data.scheduleEnd - pm.data.scheduleStart - pm.data.scheduleBreak, pm.data.actualMinutes);
+});

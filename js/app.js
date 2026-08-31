@@ -199,6 +199,12 @@ el.btnBreakOtherConfirm.addEventListener('click', () => {
 
 // --- 結果表示 ---
 
+// 休憩は「◯分」の分単位のみで表示する（仕様: 休憩開始・終了時刻を保持していないため、
+// 存在しない休憩時刻を生成せず、分数だけを示す。60分を「1時間」と時間換算表示しない）。
+function formatBreakMinutes(minutes) {
+  return `${minutes}分`;
+}
+
 function renderResult(result) {
   el.resultSection.hidden = false;
   el.resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -233,14 +239,30 @@ function renderNotice(cssClass, title, message) {
   `;
 }
 
-function renderHalfResult(data) {
+function renderScheduleBlock(data) {
   return `
-    <div class="result-card">
-      <p class="result-headline">半日有休</p>
+    <div class="result-section-block">
+      <p class="result-block-title">スケジュール申請</p>
+      <div class="result-grid">
+        <div class="result-grid-item">
+          <div class="label">勤務開始</div>
+          <div class="value">${minutesToTimeString(data.scheduleStart)}</div>
+        </div>
+        <div class="result-grid-item">
+          <div class="label">勤務終了</div>
+          <div class="value">${minutesToTimeString(data.scheduleEnd)}</div>
+        </div>
+      </div>
+      <p class="result-break-line">休憩：${formatBreakMinutes(data.scheduleBreak)}</p>
+    </div>
+  `;
+}
 
+function renderAuxBlock(data, itemNameHtml) {
+  return `
+    <div class="result-section-block">
       <p class="result-block-title">補助項目申請</p>
-      <p class="result-item-name">${escapeHtml(data.auxItemName)}</p>
-
+      ${itemNameHtml}
       <div class="result-grid">
         <div class="result-grid-item">
           <div class="label">開始</div>
@@ -251,16 +273,43 @@ function renderHalfResult(data) {
           <div class="value">${minutesToTimeString(data.auxEnd)}</div>
         </div>
       </div>
+    </div>
+  `;
+}
 
-      <div class="result-leave-minutes">
-        <div class="label">有給時間</div>
-        <div class="value">${formatDuration(data.leaveMinutes)}</div>
+function renderConfirmBlock(data) {
+  return `
+    <div class="result-section-block">
+      <p class="result-block-title">確認</p>
+      <div class="result-grid">
+        <div class="result-grid-item">
+          <div class="label">実働</div>
+          <div class="value">${formatDuration(data.actualMinutes)}</div>
+        </div>
+        <div class="result-grid-item">
+          <div class="label">有給</div>
+          <div class="value">${formatDuration(data.leaveMinutes)}</div>
+        </div>
       </div>
-
       <div class="verify-box">
         実働 ${formatDuration(data.actualMinutes)} + 有給 ${formatDuration(data.leaveMinutes)}
         = 所定 ${formatDuration(data.standardMinutes)} ✓ 計算一致
       </div>
+    </div>
+  `;
+}
+
+function renderHalfResult(data) {
+  const itemNameHtml = `<p class="result-item-name">${escapeHtml(data.auxItemName)}</p>`;
+
+  return `
+    <div class="result-card">
+      <p class="result-block-title">判定</p>
+      <p class="result-headline">半日有休</p>
+
+      ${renderScheduleBlock(data)}
+      ${renderAuxBlock(data, itemNameHtml)}
+      ${renderConfirmBlock(data)}
 
       ${renderDetails(data)}
     </div>
@@ -278,7 +327,7 @@ function renderFullResult(data) {
         <span class="undetermined-badge">未確定</span>
         <p style="margin:6px 0 0 0;">
           有給側で処理する休憩は ${formatDuration(data.leaveSideBreak)} と計算できましたが、
-          この分数に対応する会社の補助項目名は現在未確認です。開始・終了時刻と有給時間はこの計算結果のとおりですが、
+          この分数に対応する会社の補助項目名は現在未確認です。スケジュール申請・開始終了時刻・有給時間はこの計算結果のとおりですが、
           補助項目名だけは所長・資料でご確認ください。
         </p>
       </div>
@@ -287,35 +336,15 @@ function renderFullResult(data) {
 
   return `
     <div class="result-card">
+      <p class="result-block-title">判定</p>
       <p class="result-headline">全日扱い</p>
 
-      <p class="result-block-title">補助項目申請</p>
-      ${itemNameHtml}
-
-      <div class="result-grid">
-        <div class="result-grid-item">
-          <div class="label">開始</div>
-          <div class="value">${minutesToTimeString(data.auxStart)}</div>
-        </div>
-        <div class="result-grid-item">
-          <div class="label">終了</div>
-          <div class="value">${minutesToTimeString(data.auxEnd)}</div>
-        </div>
-      </div>
-
-      <div class="result-leave-minutes">
-        <div class="label">有給時間</div>
-        <div class="value">${formatDuration(data.leaveMinutes)}</div>
-      </div>
-
+      ${renderScheduleBlock(data)}
+      ${renderAuxBlock(data, itemNameHtml)}
       <p class="leave-side-break-box">有給側で処理する休憩：${formatDuration(data.leaveSideBreak)}</p>
-
-      <div class="verify-box">
-        実働 ${formatDuration(data.actualMinutes)} + 有給 ${formatDuration(data.leaveMinutes)}
-        = 所定 ${formatDuration(data.standardMinutes)} ✓ 計算一致
-      </div>
-
       ${undeterminedBoxHtml}
+      ${renderConfirmBlock(data)}
+
       ${renderDetails(data)}
     </div>
   `;

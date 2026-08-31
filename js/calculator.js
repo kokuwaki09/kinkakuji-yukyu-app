@@ -182,6 +182,20 @@ export function calculate(input) {
   const isHalf = leaveMinutes <= standardMinutes / 2;
 
   if (isHalf) {
+    // 半日有休では、補助項目の時間帯＝実際の有給取得時間帯。
+    // スケジュール（勤務）側は、通常勤務時間から有給時間帯を除いた側になる。
+    // 通常休憩は勤務側で処理されるため、スケジュールの休憩時間＝通常休憩時間とする。
+    let scheduleStart;
+    let scheduleEnd;
+    if (pattern === 'AM') {
+      scheduleStart = leaveEnd;
+      scheduleEnd = normalEnd;
+    } else {
+      // pattern === 'PM'
+      scheduleStart = normalStart;
+      scheduleEnd = leaveStart;
+    }
+
     return {
       status: 'HALF',
       data: {
@@ -193,6 +207,9 @@ export function calculate(input) {
         auxItemName: AUX_ITEM_NAMES.HALF,
         auxStart: leaveStart,
         auxEnd: leaveEnd,
+        scheduleStart,
+        scheduleEnd,
+        scheduleBreak: normalBreak,
       },
     };
   }
@@ -239,6 +256,18 @@ export function calculate(input) {
 
   const auxItemName = resolveFullDayItemName(leaveSideBreak);
 
+  // スケジュール（勤務）側は、補助項目の時間帯の反対側。休憩は勤務中に実際に取る休憩時間を使う。
+  let scheduleStart;
+  let scheduleEnd;
+  if (pattern === 'AM') {
+    scheduleStart = auxEnd;
+    scheduleEnd = normalEnd;
+  } else {
+    // pattern === 'PM'
+    scheduleStart = normalStart;
+    scheduleEnd = auxStart;
+  }
+
   return {
     status: 'FULL',
     data: {
@@ -252,6 +281,9 @@ export function calculate(input) {
       auxItemName,
       auxStart,
       auxEnd,
+      scheduleStart,
+      scheduleEnd,
+      scheduleBreak: breakDuringWork,
       itemUndetermined: auxItemName === null,
     },
   };
