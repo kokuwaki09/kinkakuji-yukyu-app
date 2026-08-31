@@ -1,0 +1,10 @@
+{
+  "name": "yukyu-kantan-keisan",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "高円寺営業所専用 有給かんたん計算（部分有休の補助項目計算ツール）",
+  "scripts": {
+    "test": "node --test"
+  }
+}
