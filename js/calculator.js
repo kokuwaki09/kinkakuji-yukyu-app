@@ -3,7 +3,12 @@
 // ブラウザ（ESモジュール）とNode.jsテストの両方から同じコードを読み込む。
 // 会社独自ルールの定数は companyRules.js に集約し、ここではロジックのみを扱う。
 
-import { AUX_ITEM_NAMES, LEAVE_UNIT_MINUTES, resolveFullDayItemName } from './companyRules.js';
+import {
+  AUX_ITEM_NAMES,
+  LEAVE_UNIT_MINUTES,
+  resolveFullDayItemName,
+  resolveRequiredBreakMinutes,
+} from './companyRules.js';
 
 /**
  * 'HH:MM' 形式の文字列を、0時からの分数に変換する。
@@ -82,28 +87,21 @@ export function classifyPattern({ normalStart, normalEnd, leaveStart, leaveEnd }
  * @param {number} input.normalBreak - 通常休憩時間（分）
  * @param {number} input.leaveStart - 有給開始（分）
  * @param {number} input.leaveEnd - 有給終了（分）
- * @param {number|null} [input.breakDuringWork] - 勤務中に実際に取る休憩時間（分）。
- *   全日扱いと判定された場合にのみ必要。未指定(null/undefined)の場合、
- *   全日扱いであれば status: 'NEEDS_BREAK_INPUT' を返す。
+ *
+ * 「勤務中に実際に取る休憩」はスタッフに質問しない。勤革時マニュアル09〜11の確認により、
+ * スケジュール申請・補助項目申請のいずれにも「本人が休憩時間を選ぶ」手順は存在せず、
+ * 残る勤務時間から会社ルール（companyRules.js の resolveRequiredBreakMinutes）で
+ * 自動的に必要休憩を判定する方針とした。
  *
  * @returns {object} 判定結果。statusは以下のいずれか。
  *   - 'ERROR': 入力エラー。message に日本語のエラー文を含む
  *   - 'FULL_DAY_OUT_OF_SCOPE': 丸1日の有給（このツールの対象外）
  *   - 'MIDDLE_UNSUPPORTED': 中抜け有給（第1版では未対応）
- *   - 'NEEDS_BREAK_INPUT': 全日扱いと判定され、休憩の追加入力が必要
  *   - 'HALF': 半日有休として計算完了
  *   - 'FULL': 全日扱いとして計算完了（補助項目名が未確定の場合あり）
  */
 export function calculate(input) {
-  const {
-    isWorkday,
-    normalStart,
-    normalEnd,
-    normalBreak,
-    leaveStart,
-    leaveEnd,
-    breakDuringWork = null,
-  } = input;
+  const { isWorkday, normalStart, normalEnd, normalBreak, leaveStart, leaveEnd } = input;
 
   if (!isWorkday) {
     return {
@@ -214,30 +212,17 @@ export function calculate(input) {
     };
   }
 
-  // ここから全日扱い（全日有休扱い）
-  if (breakDuringWork === null || breakDuringWork === undefined) {
-    return {
-      status: 'NEEDS_BREAK_INPUT',
-      data: {
-        pattern,
-        leaveMinutes,
-        actualMinutes,
-        standardMinutes,
-      },
-    };
-  }
-
-  if (!Number.isFinite(breakDuringWork) || breakDuringWork < 0) {
-    return {
-      status: 'ERROR',
-      message: '勤務中に取る休憩時間を正しく入力してください。',
-    };
-  }
+  // ここから全日扱い（全日有休扱い）。
+  // 「全日扱い」は有給時間が所定の半分を超える場合に限られるため、残る勤務時間(actualMinutes)は
+  // 必ず所定の半分未満になる。会社ルール(6時間以下→休憩0分)の範囲に収まるため、
+  // 実務上ここは常に0分になりうるが、将来所定労働時間が長いケースにも対応できるよう
+  // 一般式のまま自動判定する。
+  const breakDuringWork = resolveRequiredBreakMinutes(actualMinutes);
 
   if (breakDuringWork > normalBreak) {
     return {
       status: 'ERROR',
-      message: `勤務中に取る休憩時間が、通常の休憩時間（${formatDuration(normalBreak)}）を超えています。`,
+      message: `自動判定された勤務中の休憩時間（${formatDuration(breakDuringWork)}）が、通常の休憩時間（${formatDuration(normalBreak)}）を超えています。設定内容をご確認ください。`,
     };
   }
 

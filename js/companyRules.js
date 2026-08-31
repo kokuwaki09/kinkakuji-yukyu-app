@@ -44,5 +44,26 @@ export function resolveFullDayItemName(leaveSideBreakMinutes) {
 // 有給時間の合計はこの単位でなければならない。
 export const LEAVE_UNIT_MINUTES = 30;
 
-// 勤務中に取る休憩時間の入力候補（分）。「その他」はUI側で自由入力を受け付ける。
-export const BREAK_DURING_WORK_PRESETS = [0, 30, 60];
+// 実際に働く時間（分）から、その勤務時間に対して必要な休憩時間（分）を判定するルール。
+// 勤革時マニュアル09〜11の確認により、スタッフ本人に「勤務中に取る休憩」を選ばせるのではなく、
+// 残る勤務時間からアプリ側で自動判定する方針に変更した（本人には質問しない）。
+//
+// 現在確認済みの会社ルール：
+//   6時間以下          → 休憩0分
+//   6時間超8時間未満   → 休憩45分
+//   8時間以上          → 休憩60分
+//
+// 境界値はミリ秒単位の誤差を避けるため分単位の整数で判定する。
+const SIX_HOURS_MINUTES = 6 * 60;
+const EIGHT_HOURS_MINUTES = 8 * 60;
+
+/**
+ * 実際に働く時間（分）から、その勤務に必要な休憩時間（分）を自動判定する。
+ * @param {number} workMinutes
+ * @returns {number}
+ */
+export function resolveRequiredBreakMinutes(workMinutes) {
+  if (workMinutes <= SIX_HOURS_MINUTES) return 0;
+  if (workMinutes < EIGHT_HOURS_MINUTES) return 45;
+  return 60;
+}

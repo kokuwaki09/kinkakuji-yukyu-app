@@ -9,7 +9,6 @@ import {
   formatDuration,
   calcStandardMinutes,
 } from './calculator.js';
-import { BREAK_DURING_WORK_PRESETS } from './companyRules.js';
 import {
   loadSettings,
   saveSettings,
@@ -23,9 +22,6 @@ import {
 const DISPLAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 let settings = loadSettings() || createEmptySettings();
-
-// 全日扱いと判定されたあと、休憩入力を待っている間に使う「計算のベースになる入力」
-let pendingBaseInput = null;
 
 // --- DOM参照 ---
 
@@ -45,11 +41,6 @@ const el = {
   weekdayInfo: document.getElementById('weekday-info'),
   leaveStart: document.getElementById('leave-start'),
   leaveEnd: document.getElementById('leave-end'),
-
-  breakSection: document.getElementById('break-section'),
-  breakPresets: document.getElementById('break-presets'),
-  breakOther: document.getElementById('break-other'),
-  btnBreakOtherConfirm: document.getElementById('btn-break-other-confirm'),
 
   resultSection: document.getElementById('result-section'),
 
@@ -95,7 +86,6 @@ function refreshSettingsWarning() {
 function updateWeekdayInfo() {
   const dateStr = el.leaveDate.value;
   clearResult();
-  hideBreakSection();
 
   if (!dateStr) {
     el.weekdayInfo.textContent = '';
@@ -120,13 +110,6 @@ function clearResult() {
   el.resultSection.innerHTML = '';
 }
 
-function hideBreakSection() {
-  el.breakSection.hidden = true;
-  el.breakOther.value = '';
-  pendingBaseInput = null;
-  el.breakPresets.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
-}
-
 function buildBaseInput() {
   const dateStr = el.leaveDate.value;
   const key = weekdayKeyFromDateString(dateStr);
@@ -142,15 +125,8 @@ function buildBaseInput() {
   };
 }
 
-function runCalculation(breakDuringWork) {
-  if (!pendingBaseInput) return;
-  const result = calculate({ ...pendingBaseInput, breakDuringWork });
-  renderResult(result);
-}
-
 el.calcForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  hideBreakSection();
 
   if (!el.leaveDate.value) {
     renderResult({ status: 'ERROR', message: '有給を取る日を選択してください。' });
@@ -159,43 +135,10 @@ el.calcForm.addEventListener('submit', (e) => {
 
   const baseInput = buildBaseInput();
   const result = calculate(baseInput);
-
-  if (result.status === 'NEEDS_BREAK_INPUT') {
-    pendingBaseInput = baseInput;
-    el.breakSection.hidden = false;
-    clearResult();
-    el.breakSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    return;
-  }
-
   renderResult(result);
 });
 
 el.leaveDate.addEventListener('change', updateWeekdayInfo);
-
-BREAK_DURING_WORK_PRESETS.forEach((minutes) => {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.textContent = `${minutes}分`;
-  btn.dataset.minutes = String(minutes);
-  btn.addEventListener('click', () => {
-    el.breakPresets.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    el.breakOther.value = '';
-    runCalculation(minutes);
-  });
-  el.breakPresets.appendChild(btn);
-});
-
-el.btnBreakOtherConfirm.addEventListener('click', () => {
-  const val = Number(el.breakOther.value);
-  if (!el.breakOther.value || Number.isNaN(val) || val < 0) {
-    renderResult({ status: 'ERROR', message: '勤務中に取る休憩時間を分単位の数字で入力してください。' });
-    return;
-  }
-  el.breakPresets.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
-  runCalculation(val);
-});
 
 // --- 結果表示 ---
 

@@ -188,46 +188,6 @@ select {
   margin: 0 0 12px 0;
 }
 
-.break-question {
-  font-weight: 700;
-  margin: 0 0 12px 0;
-}
-
-.preset-buttons {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.preset-buttons button {
-  flex: 1 1 auto;
-  min-width: 70px;
-  padding: 12px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.preset-buttons button.selected {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
-}
-
-.break-other-field {
-  border-top: 1px dashed var(--color-border);
-  padding-top: 12px;
-}
-
-.break-other-field .btn {
-  margin-top: 10px;
-}
-
 /* 結果表示 */
 
 .result-section {
