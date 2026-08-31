@@ -214,7 +214,7 @@ export function calculate(input) {
 
   // ここから全日扱い（全日有休扱い）。
   // 「全日扱い」は有給時間が所定の半分を超える場合に限られるため、残る勤務時間(actualMinutes)は
-  // 必ず所定の半分未満になる。会社ルール(6時間以下→休憩0分)の範囲に収まるため、
+  // 必ず所定の半分未満になる。会社ルール(6時間未満→休憩0分)の範囲に収まるため、
   // 実務上ここは常に0分になりうるが、将来所定労働時間が長いケースにも対応できるよう
   // 一般式のまま自動判定する。
   const breakDuringWork = resolveRequiredBreakMinutes(actualMinutes);

@@ -48,10 +48,14 @@ export const LEAVE_UNIT_MINUTES = 30;
 // 勤革時マニュアル09〜11の確認により、スタッフ本人に「勤務中に取る休憩」を選ばせるのではなく、
 // 残る勤務時間からアプリ側で自動判定する方針に変更した（本人には質問しない）。
 //
-// 現在確認済みの会社ルール：
-//   6時間以下          → 休憩0分
-//   6時間超8時間未満   → 休憩45分
+// 現在確認済みの会社ルール（「6時間以上勤務の場合は45分、8時間勤務の場合は60分」という
+// 会社側の回答に基づく。ちょうど6時間勤務は45分側に含まれる点に注意）：
+//   6時間未満          → 休憩0分
+//   6時間以上8時間未満 → 休憩45分
 //   8時間以上          → 休憩60分
+//
+// 8時間(480分)を超える勤務は、今回のアプリが対象とする通常所定労働時間（最大8時間）の
+// 範囲外のため、ここでは新しいルールを推測せず、8時間以上の勤務は一律60分として扱う。
 //
 // 境界値はミリ秒単位の誤差を避けるため分単位の整数で判定する。
 const SIX_HOURS_MINUTES = 6 * 60;
@@ -63,7 +67,7 @@ const EIGHT_HOURS_MINUTES = 8 * 60;
  * @returns {number}
  */
 export function resolveRequiredBreakMinutes(workMinutes) {
-  if (workMinutes <= SIX_HOURS_MINUTES) return 0;
+  if (workMinutes < SIX_HOURS_MINUTES) return 0;
   if (workMinutes < EIGHT_HOURS_MINUTES) return 45;
   return 60;
 }

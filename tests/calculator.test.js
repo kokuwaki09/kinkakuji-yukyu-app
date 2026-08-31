@@ -76,15 +76,16 @@ test('classifyPattern: AM/PM/FULL_DAY/MIDDLE/OUT_OF_RANGEの判定', () => {
 });
 
 // --- 休憩自動判定ルール（companyRules.js）のテスト ---
-// 会社ルール: 6時間以下→0分／6時間超8時間未満→45分／8時間以上→60分
+// 会社確認済みルール: 「6時間以上勤務の場合は45分、8時間勤務の場合は60分」
+// つまり 6時間未満→0分／6時間以上8時間未満→45分／8時間以上→60分（ちょうど6時間勤務は45分側）
 
 test('resolveRequiredBreakMinutes: 境界値の判定', () => {
   assert.equal(resolveRequiredBreakMinutes(0), 0);
-  assert.equal(resolveRequiredBreakMinutes(6 * 60), 0); // 6時間ちょうどは0分側
-  assert.equal(resolveRequiredBreakMinutes(6 * 60 + 1), 45); // 6時間超
-  assert.equal(resolveRequiredBreakMinutes(7 * 60), 45);
-  assert.equal(resolveRequiredBreakMinutes(8 * 60 - 1), 45); // 8時間未満
-  assert.equal(resolveRequiredBreakMinutes(8 * 60), 60); // 8時間ちょうどは60分側
+  assert.equal(resolveRequiredBreakMinutes(359), 0); // 6時間未満
+  assert.equal(resolveRequiredBreakMinutes(360), 45); // 6時間ちょうどは45分側
+  assert.equal(resolveRequiredBreakMinutes(361), 45);
+  assert.equal(resolveRequiredBreakMinutes(479), 45); // 8時間未満
+  assert.equal(resolveRequiredBreakMinutes(480), 60); // 8時間ちょうどは60分側
   assert.equal(resolveRequiredBreakMinutes(9 * 60), 60);
 });
 
