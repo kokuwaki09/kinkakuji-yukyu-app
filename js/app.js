@@ -59,7 +59,7 @@ function showCalcView() {
   el.viewSettings.hidden = true;
   el.btnOpenSettings.hidden = false;
   el.btnBackToMain.hidden = true;
-  el.headerTitle.textContent = '有給かんたん計算';
+  el.headerTitle.textContent = '半休・半休以上かんたん計算';
   refreshSettingsWarning();
   updateWeekdayInfo();
 }
