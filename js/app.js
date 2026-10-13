@@ -3,7 +3,7 @@
 // 会社独自ルール・計算ロジックはこのファイルには書かず、companyRules.js / calculator.js を呼び出すだけにする。
 
 import {
-  calculate,
+  calculateFromRealTimes,
   timeStringToMinutes,
   minutesToTimeString,
   formatDuration,
@@ -41,6 +41,11 @@ const el = {
   weekdayInfo: document.getElementById('weekday-info'),
   leaveStart: document.getElementById('leave-start'),
   leaveEnd: document.getElementById('leave-end'),
+
+  breakConfirmSection: document.getElementById('break-confirm-section'),
+  breakConfirmQuestion: document.getElementById('break-confirm-question'),
+  btnBreakTaken: document.getElementById('btn-break-taken'),
+  btnBreakNotTaken: document.getElementById('btn-break-not-taken'),
 
   resultSection: document.getElementById('result-section'),
 
@@ -105,9 +110,19 @@ function updateWeekdayInfo() {
 
 // --- 計算実行 ---
 
+// 「現実に働く・休む時刻」だけでは半休/全日扱いを一意に決められない場合（空白地帯）に、
+// 休憩を取ったかどうかの回答待ちで保持しておく入力値。
+let pendingRealInput = null;
+
 function clearResult() {
   el.resultSection.hidden = true;
   el.resultSection.innerHTML = '';
+  hideBreakConfirm();
+}
+
+function hideBreakConfirm() {
+  el.breakConfirmSection.hidden = true;
+  pendingRealInput = null;
 }
 
 function buildBaseInput() {
@@ -120,10 +135,50 @@ function buildBaseInput() {
     normalStart: day.start ? timeStringToMinutes(day.start) : NaN,
     normalEnd: day.end ? timeStringToMinutes(day.end) : NaN,
     normalBreak: typeof day.break === 'number' ? day.break : NaN,
-    leaveStart: el.leaveStart.value ? timeStringToMinutes(el.leaveStart.value) : NaN,
-    leaveEnd: el.leaveEnd.value ? timeStringToMinutes(el.leaveEnd.value) : NaN,
+    realLeaveStart: el.leaveStart.value ? timeStringToMinutes(el.leaveStart.value) : NaN,
+    realLeaveEnd: el.leaveEnd.value ? timeStringToMinutes(el.leaveEnd.value) : NaN,
   };
 }
+
+function runCalculation(baseInput) {
+  const result = calculateFromRealTimes(baseInput);
+
+  if (result.status === 'NEEDS_BREAK_CONFIRMATION') {
+    pendingRealInput = baseInput;
+    el.resultSection.hidden = true;
+    el.resultSection.innerHTML = '';
+    showBreakConfirm(result.data);
+    return;
+  }
+
+  hideBreakConfirm();
+  renderResult(result);
+}
+
+function showBreakConfirm(data) {
+  const windowText = `${minutesToTimeString(data.workWindowStart)}〜${minutesToTimeString(data.workWindowEnd)}`;
+  el.breakConfirmQuestion.textContent =
+    `${windowText}の間に、通常の休憩（${formatBreakMinutes(data.normalBreak)}）を取りましたか？` +
+    'この時間帯だけは、時計上の長さだけでは半休・全日扱いを判定できないため確認させてください。';
+  el.breakConfirmSection.hidden = false;
+  el.breakConfirmSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+el.btnBreakTaken.addEventListener('click', () => {
+  if (!pendingRealInput) return;
+  const baseInput = { ...pendingRealInput, tookBreakDuringWork: true };
+  hideBreakConfirm();
+  const result = calculateFromRealTimes(baseInput);
+  renderResult(result);
+});
+
+el.btnBreakNotTaken.addEventListener('click', () => {
+  if (!pendingRealInput) return;
+  const baseInput = { ...pendingRealInput, tookBreakDuringWork: false };
+  hideBreakConfirm();
+  const result = calculateFromRealTimes(baseInput);
+  renderResult(result);
+});
 
 el.calcForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -134,8 +189,7 @@ el.calcForm.addEventListener('submit', (e) => {
   }
 
   const baseInput = buildBaseInput();
-  const result = calculate(baseInput);
-  renderResult(result);
+  runCalculation(baseInput);
 });
 
 el.leaveDate.addEventListener('change', updateWeekdayInfo);
@@ -242,6 +296,33 @@ function renderConfirmBlock(data) {
   `;
 }
 
+// 「現実に働く・休む時刻」だけでは半休/全日扱いを判定できない際どい時間帯（空白地帯）で、
+// 休憩の回答を踏まえて計算した場合、スケジュール申請の時刻・休憩が実際の在席時間と
+// ずれることがある。そのままだと分かりにくいため、理由を短く表示する。
+function renderAdjustmentNote(data) {
+  if (!data.deadZoneAdjustment) return '';
+
+  const realStart = data.pattern === 'AM' ? data.realLeaveEnd : data.scheduleStart;
+  const realEnd = data.pattern === 'AM' ? data.scheduleEnd : data.realLeaveStart;
+
+  if (realStart === data.scheduleStart && realEnd === data.scheduleEnd) return '';
+
+  const scheduleText = `${minutesToTimeString(data.scheduleStart)}〜${minutesToTimeString(data.scheduleEnd)}・休憩${formatBreakMinutes(data.scheduleBreak)}`;
+  const realText = `${minutesToTimeString(realStart)}〜${minutesToTimeString(realEnd)}`;
+
+  const reason =
+    data.classification === 'FULL'
+      ? `実際に取得した通常休憩${formatBreakMinutes(data.normalBreak)}は「${data.auxItemName}」側で処理するため`
+      : `通常休憩${formatBreakMinutes(data.normalBreak)}をスケジュール申請側に含めて計算するため`;
+
+  return `
+    <p class="adjustment-note">
+      ※実際に職場にいらっしゃった時間は ${realText} ですが、${reason}、
+      スケジュール申請は ${scheduleText} として申請してください。
+    </p>
+  `;
+}
+
 function renderHalfResult(data) {
   const itemNameHtml = `<p class="result-item-name">${escapeHtml(data.auxItemName)}</p>`;
 
@@ -251,6 +332,7 @@ function renderHalfResult(data) {
       <p class="result-headline">半日有休</p>
 
       ${renderScheduleBlock(data)}
+      ${renderAdjustmentNote(data)}
       ${renderAuxBlock(data, itemNameHtml)}
       ${renderConfirmBlock(data)}
 
@@ -283,6 +365,7 @@ function renderFullResult(data) {
       <p class="result-headline">全日扱い</p>
 
       ${renderScheduleBlock(data)}
+      ${renderAdjustmentNote(data)}
       ${renderAuxBlock(data, itemNameHtml)}
       <p class="leave-side-break-box">有給側で処理する休憩：${formatDuration(data.leaveSideBreak)}</p>
       ${undeterminedBoxHtml}

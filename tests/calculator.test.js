@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculate,
+  calculateFromRealTimes,
   classifyPattern,
   timeStringToMinutes,
   minutesToTimeString,
@@ -479,4 +480,284 @@ test('スケジュール実働時間+休憩 と 補助項目時間帯 は所定�
   );
   assert.equal(pm.data.scheduleEnd, pm.data.auxStart);
   assert.equal(pm.data.scheduleEnd - pm.data.scheduleStart - pm.data.scheduleBreak, pm.data.actualMinutes);
+});
+
+// --- calculateFromRealTimes(): 「現実に働く・休む時刻」からの計算 ---
+//
+// 利用者には「実際に休み始める・休みが終わる時刻」をそのまま入力してもらい、
+// 会社確認済みの計算ロジック(calculate())はそのまま温存した上で、
+// その手前で「現実の時刻 → calculate()が期待する申請用の時刻」へ変換する層。
+// 現実の勤務時間の長さだけでは半休/全日扱いを一意に決められない範囲(空白地帯)でのみ、
+// 休憩を取ったかどうかの追加確認(tookBreakDuringWork)が必要になる。
+
+function realBase({ isWorkday = true, normalStart, normalEnd, normalBreak, realLeaveStart, realLeaveEnd, tookBreakDuringWork } = {}) {
+  return {
+    isWorkday,
+    normalStart: t(normalStart),
+    normalEnd: t(normalEnd),
+    normalBreak,
+    realLeaveStart: t(realLeaveStart),
+    realLeaveEnd: t(realLeaveEnd),
+    tookBreakDuringWork,
+  };
+}
+
+test('現実時刻入力: 9:00-18:00・休憩60分で9:30から休む(実質30分勤務) → 質問なしでFULL、実際の時刻のまま申請できる', () => {
+  const r = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '09:30', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(r.status, 'FULL');
+  assert.equal(minutesToTimeString(r.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.scheduleEnd), '09:30');
+  assert.equal(r.data.scheduleBreak, 0);
+  assert.equal(minutesToTimeString(r.data.auxStart), '09:30');
+  assert.equal(minutesToTimeString(r.data.auxEnd), '18:00');
+  assert.equal(r.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
+  assert.equal(r.data.actualMinutes, 30);
+  assert.equal(r.data.deadZoneAdjustment, false);
+});
+
+test('現実時刻入力: 9:00-18:00・休憩60分で12:00から休む → 質問なしでFULL、補助項目が実際の開始時刻(12:00)と一致する', () => {
+  const r = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '12:00', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(r.status, 'FULL');
+  assert.equal(minutesToTimeString(r.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.scheduleEnd), '12:00');
+  assert.equal(r.data.scheduleBreak, 0);
+  assert.equal(minutesToTimeString(r.data.auxStart), '12:00');
+  assert.equal(minutesToTimeString(r.data.auxEnd), '18:00');
+  assert.equal(r.data.deadZoneAdjustment, false);
+});
+
+test('現実時刻入力: TC1相当(8:45-14:45勤務・14:45-17:45休み) → calculate()直接呼び出しと同じ結果を再現する(回帰確認)', () => {
+  const direct = calculate({
+    isWorkday: true,
+    normalStart: t('08:45'),
+    normalEnd: t('17:45'),
+    normalBreak: 60,
+    leaveStart: t('14:45'),
+    leaveEnd: t('17:45'),
+  });
+  const viaReal = calculateFromRealTimes(
+    realBase({ normalStart: '08:45', normalEnd: '17:45', normalBreak: 60, realLeaveStart: '14:45', realLeaveEnd: '17:45' }),
+  );
+  assert.equal(viaReal.status, 'HALF');
+  assert.equal(viaReal.status, direct.status);
+  assert.equal(viaReal.data.scheduleStart, direct.data.scheduleStart);
+  assert.equal(viaReal.data.scheduleEnd, direct.data.scheduleEnd);
+  assert.equal(viaReal.data.scheduleBreak, direct.data.scheduleBreak);
+  assert.equal(viaReal.data.actualMinutes, direct.data.actualMinutes);
+  assert.equal(viaReal.data.deadZoneAdjustment, false);
+});
+
+test('現実時刻入力: TC2相当(AM側, 9:00-14:00休み) → calculate()直接呼び出しと同じ結果を再現する(回帰確認)', () => {
+  const direct = calculate({
+    isWorkday: true,
+    normalStart: t('09:00'),
+    normalEnd: t('18:00'),
+    normalBreak: 60,
+    leaveStart: t('09:00'),
+    leaveEnd: t('14:00'),
+  });
+  // 実際に職場に戻った時刻は15:00(実働3時間=180分、空白地帯の外)。
+  // legacy変換後の有給終了は14:00となり、direct呼び出しのTC2(leaveEnd=14:00)と一致する。
+  // (実際の復帰が14:00だと、その4時間に通常休憩を含むかどうかが一意に決まらず、
+  //  空白地帯の確認が必要になってしまうため、ここでは空白地帯の外側の時刻で検証する)
+  const viaReal = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '09:00', realLeaveEnd: '15:00' }),
+  );
+  assert.equal(viaReal.status, 'FULL');
+  assert.equal(viaReal.data.scheduleStart, direct.data.scheduleStart);
+  assert.equal(viaReal.data.scheduleEnd, direct.data.scheduleEnd);
+  assert.equal(viaReal.data.auxStart, direct.data.auxStart);
+  assert.equal(viaReal.data.auxEnd, direct.data.auxEnd);
+  assert.equal(viaReal.data.deadZoneAdjustment, false);
+});
+
+test('空白地帯: 9:00-18:00・休憩60分で13:30まで在席 → 回答なしではNEEDS_BREAK_CONFIRMATIONを返す', () => {
+  const r = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '13:30', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(r.status, 'NEEDS_BREAK_CONFIRMATION');
+  assert.equal(r.data.pattern, 'PM');
+  assert.equal(minutesToTimeString(r.data.workWindowStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.workWindowEnd), '13:30');
+  assert.equal(r.data.normalBreak, 60);
+});
+
+test('空白地帯: 同条件で「休憩を取った」と回答 → 全日扱い(実働3時間30分・有給4時間30分)、スケジュール休憩0分', () => {
+  const r = calculateFromRealTimes(
+    realBase({
+      normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
+      realLeaveStart: '13:30', realLeaveEnd: '18:00', tookBreakDuringWork: true,
+    }),
+  );
+  assert.equal(r.status, 'FULL');
+  assert.equal(r.data.actualMinutes, 210);
+  assert.equal(r.data.leaveMinutes, 270);
+  assert.equal(minutesToTimeString(r.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.scheduleEnd), '12:30');
+  assert.equal(r.data.scheduleBreak, 0);
+  assert.equal(minutesToTimeString(r.data.auxStart), '12:30');
+  assert.equal(minutesToTimeString(r.data.auxEnd), '18:00');
+  assert.equal(r.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
+  assert.equal(r.data.deadZoneAdjustment, true);
+});
+
+test('空白地帯: 同条件で「休憩を取らなかった」と回答 → 半日有休(実働4時間30分・有給3時間30分)、スケジュール休憩60分', () => {
+  const r = calculateFromRealTimes(
+    realBase({
+      normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
+      realLeaveStart: '13:30', realLeaveEnd: '18:00', tookBreakDuringWork: false,
+    }),
+  );
+  assert.equal(r.status, 'HALF');
+  assert.equal(r.data.actualMinutes, 270);
+  assert.equal(r.data.leaveMinutes, 210);
+  assert.equal(minutesToTimeString(r.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.scheduleEnd), '14:30');
+  assert.equal(r.data.scheduleBreak, 60);
+  assert.equal(minutesToTimeString(r.data.auxStart), '14:30');
+  assert.equal(minutesToTimeString(r.data.auxEnd), '18:00');
+  assert.equal(r.data.auxItemName, AUX_ITEM_NAMES.HALF);
+  assert.equal(r.data.deadZoneAdjustment, true);
+});
+
+test('空白地帯: AM側でも同じ考え方が成立する(PM側と対称)', () => {
+  // AM側: 有給が9:00開始、実際の勤務が終業側に残るケース。13:30まで休み(=終業側に4時間30分勤務)は
+  // PM側の実働4時間30分ケースと対称になるよう、9:00-18:00・休憩60分で有給9:00-13:30を試す。
+  const rTaken = calculateFromRealTimes(
+    realBase({
+      normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
+      realLeaveStart: '09:00', realLeaveEnd: '13:30', tookBreakDuringWork: true,
+    }),
+  );
+  assert.equal(rTaken.status, 'FULL');
+  assert.equal(rTaken.data.actualMinutes, 210);
+  assert.equal(minutesToTimeString(rTaken.data.scheduleStart), '14:30');
+  assert.equal(minutesToTimeString(rTaken.data.scheduleEnd), '18:00');
+  assert.equal(rTaken.data.scheduleBreak, 0);
+
+  const rNotTaken = calculateFromRealTimes(
+    realBase({
+      normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
+      realLeaveStart: '09:00', realLeaveEnd: '13:30', tookBreakDuringWork: false,
+    }),
+  );
+  assert.equal(rNotTaken.status, 'HALF');
+  assert.equal(rNotTaken.data.actualMinutes, 270);
+  assert.equal(minutesToTimeString(rNotTaken.data.scheduleStart), '12:30');
+  assert.equal(minutesToTimeString(rNotTaken.data.scheduleEnd), '18:00');
+  assert.equal(rNotTaken.data.scheduleBreak, 60);
+});
+
+test('空白地帯: 境界値ちょうど(deadZoneStart)は質問が必要、1分外側(deadZoneStart-1)は自動判定される', () => {
+  // 所定8時間(480分)・休憩60分 → 空白地帯は実働換算で240分〜299分(= deadZoneStart=240, deadZoneEnd=300)
+  const atStart = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '13:00', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(atStart.status, 'NEEDS_BREAK_CONFIRMATION'); // workMinutesPresent=240=deadZoneStart
+
+  // 空白地帯のすぐ外側は、有給は30分単位という既存ルールと矛盾しない実在しうる入力(30分単位)で確認する。
+  // (1分単位でdeadZoneStart-1を試すと、変換後の有給時間が30分単位にならずERRORになるのは別ルールの話であり、
+  //  このテストが確認したい「空白地帯の外では自動判定される」という性質とは無関係のため対象にしない)
+  const justBelow = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '12:30', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(justBelow.status, 'FULL'); // workMinutesPresent=210 < deadZoneStart(240)
+  assert.equal(justBelow.data.deadZoneAdjustment, false);
+
+  const atEnd = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '13:59', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(atEnd.status, 'NEEDS_BREAK_CONFIRMATION'); // workMinutesPresent=299 < deadZoneEnd(300)
+
+  const justAbove = calculateFromRealTimes(
+    realBase({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, realLeaveStart: '14:00', realLeaveEnd: '18:00' }),
+  );
+  assert.equal(justAbove.status, 'HALF'); // workMinutesPresent=300=deadZoneEnd → 自動HALF
+  assert.equal(justAbove.data.deadZoneAdjustment, false);
+});
+
+test('通常休憩0分の曜日には空白地帯が存在しない(常に質問なしで自動判定できる)', () => {
+  // 所定8時間・休憩0分。半分(240分)付近を1分刻みで試しても、質問が発生しないことを確認する。
+  for (const realEndStr of ['12:55', '13:00', '13:05']) {
+    const r = calculateFromRealTimes(
+      realBase({ normalStart: '09:00', normalEnd: '17:00', normalBreak: 0, realLeaveStart: realEndStr, realLeaveEnd: '17:00' }),
+    );
+    assert.notEqual(r.status, 'NEEDS_BREAK_CONFIRMATION', `${realEndStr} で質問が発生してはいけない`);
+  }
+});
+
+test('空白地帯の全件検証: ①実働+有給=所定 ②半休/全日扱いの判定が有給時間と整合 ③休憩の二重計上なし ④AM/PM対称 を複数の所定・休憩パターンで確認する', () => {
+  // 通常休憩(normalBreak)が30分単位でないパターン(例: 45分)は対象にしない。
+  // 「休憩を取った」回答時に actualMinutes が30分単位からずれ、既存の
+  // 「有給は30分単位」ルール(calculate()側、本機能とは無関係の既存ルール)に
+  // 必ず抵触してERRORになるため、このパターンはそもそも対象外
+  // (補助項目対応表(companyRules.js)に有給側休憩45分の対応がない、という既知の未確定事項と同根)。
+  const patterns = [
+    { normalStart: '09:00', normalEnd: '18:00', normalBreak: 60 }, // 所定8h
+    { normalStart: '09:00', normalEnd: '17:30', normalBreak: 30 }, // 所定8h
+    { normalStart: '09:00', normalEnd: '16:00', normalBreak: 60 }, // 所定6h
+    { normalStart: '09:00', normalEnd: '17:00', normalBreak: 60 }, // 所定7h
+  ];
+
+  for (const p of patterns) {
+    const normalStart = t(p.normalStart);
+    const normalEnd = t(p.normalEnd);
+    const standardMinutes = normalEnd - normalStart - p.normalBreak;
+    const deadZoneStart = standardMinutes / 2;
+    const deadZoneEnd = deadZoneStart + p.normalBreak;
+
+    // 実際の入力は「有給は30分単位」という既存ルールと整合する30分刻みのみを対象とする
+    // (1分刻みで全数検証すると、変換後の有給時間が30分単位からずれるケースを拾ってしまい、
+    //  本機能とは無関係な既存ルールのERRORと混同するため)。
+    for (let w = deadZoneStart; w < deadZoneEnd; w += 30) {
+      for (const tookBreakDuringWork of [true, false]) {
+        // PM側(有給が終業側)で検証
+        const pmLeaveStart = normalStart + w;
+        const pm = calculateFromRealTimes({
+          isWorkday: true,
+          normalStart,
+          normalEnd,
+          normalBreak: p.normalBreak,
+          realLeaveStart: pmLeaveStart,
+          realLeaveEnd: normalEnd,
+          tookBreakDuringWork,
+        });
+
+        assert.ok(pm.status === 'HALF' || pm.status === 'FULL', `PM w=${w} tookBreak=${tookBreakDuringWork} status=${pm.status}`);
+        // ①
+        assert.equal(pm.data.actualMinutes + pm.data.leaveMinutes, standardMinutes, `① PM w=${w}`);
+        // ②
+        if (pm.status === 'HALF') {
+          assert.ok(pm.data.leaveMinutes <= standardMinutes / 2, `② PM HALF w=${w}`);
+        } else {
+          assert.ok(pm.data.leaveMinutes > standardMinutes / 2, `② PM FULL w=${w}`);
+        }
+        // ③ 休憩の二重計上なし
+        if (pm.status === 'HALF') {
+          assert.equal(pm.data.scheduleBreak, p.normalBreak, `③ PM HALF w=${w}`);
+        } else {
+          assert.equal(pm.data.scheduleBreak + pm.data.leaveSideBreak, p.normalBreak, `③ PM FULL w=${w}`);
+        }
+
+        // ④ AM側(有給が始業側)でも同じ実働時間になるか対称性を確認
+        const amLeaveEnd = normalEnd - w;
+        const am = calculateFromRealTimes({
+          isWorkday: true,
+          normalStart,
+          normalEnd,
+          normalBreak: p.normalBreak,
+          realLeaveStart: normalStart,
+          realLeaveEnd: amLeaveEnd,
+          tookBreakDuringWork,
+        });
+        assert.equal(am.status, pm.status, `④ status AM/PM対称 w=${w}`);
+        assert.equal(am.data.actualMinutes, pm.data.actualMinutes, `④ actualMinutes AM/PM対称 w=${w}`);
+        assert.equal(am.data.scheduleBreak, pm.data.scheduleBreak, `④ scheduleBreak AM/PM対称 w=${w}`);
+      }
+    }
+  }
 });

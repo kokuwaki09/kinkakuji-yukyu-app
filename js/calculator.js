@@ -273,3 +273,140 @@ export function calculate(input) {
     },
   };
 }
+
+/**
+ * 「現実に働く・休む時刻」から、半休/全日扱いを計算する。
+ *
+ * calculate() は「有給開始・終了」を、休憩分があらかじめ補助項目側に
+ * 寄せられた“申請用の境界時刻”として扱う（全日扱いの場合、有給開始を
+ * そのまま入力すると、本人の体感より早い時刻になることがある）。
+ * このため、利用者が感覚的に入力する「実際に職場を離れる／戻る時刻」を
+ * そのまま渡すと、際どいケースで所定労働時間を超えたと誤判定されたり
+ * （例：9:30〜18:00 のような入力でエラーになる)、
+ * 「12:00から休んだのに補助項目が11:00から始まる」といった、
+ * 入力と表示のずれで分かりにくくなる問題があった。
+ *
+ * この関数は、現実の時刻から「実働時間（actualMinutes）」をまず求め、
+ * それを calculate() が期待する“申請用の有給開始・終了”へ変換したうえで、
+ * calculate() 自体は一切変更せずに呼び出す。会社確認済みの計算ロジック
+ * （半休/全日扱いの判定式、休憩自動判定、補助項目対応表）はすべて
+ * calculate() 側にそのまま残り、ここでは入力の変換だけを行う。
+ *
+ * 【判定できない時間帯（空白地帯）について】
+ * 現実の勤務時間の「長さ」だけでは、その中に通常休憩が含まれていたか
+ * どうかが分からず、実働時間を一意に決められない範囲が存在する
+ * （所定労働時間の半分〜「半分+通常休憩」の範囲。詳細はテストコード参照）。
+ * この範囲に入った場合のみ、tookBreakDuringWork（その時間帯に通常休憩を
+ * 取ったか）の回答が必要になり、未回答の場合は status: 'NEEDS_BREAK_CONFIRMATION'
+ * を返す。この範囲の外では、質問なしで自動的に判定できる。
+ *
+ * @param {object} input
+ * @param {boolean} input.isWorkday
+ * @param {number} input.normalStart
+ * @param {number} input.normalEnd
+ * @param {number} input.normalBreak
+ * @param {number} input.realLeaveStart - 実際に休み始める時刻（分）
+ * @param {number} input.realLeaveEnd - 実際に休みが終わる時刻（分）
+ * @param {boolean} [input.tookBreakDuringWork] - 空白地帯のときだけ必要。
+ *   現実に職場にいた時間帯に、通常休憩を取ったかどうか。
+ * @returns {object} calculate()と同じ形式の判定結果。
+ *   加えて、statusが'NEEDS_BREAK_CONFIRMATION'の場合は
+ *   data: { pattern, workWindowStart, workWindowEnd, normalBreak, realLeaveStart, realLeaveEnd } を返す。
+ *   半休/全日扱いとして計算できた場合は、data.deadZoneAdjustment（空白地帯の回答を
+ *   使って計算したかどうか）と data.realLeaveStart / data.realLeaveEnd を追加する。
+ */
+export function calculateFromRealTimes(input) {
+  const { isWorkday, normalStart, normalEnd, normalBreak, realLeaveStart, realLeaveEnd, tookBreakDuringWork } = input;
+
+  // 範囲外・丸1日・中抜け・基本的な入力不備は、現実の時刻変換が不要（calculate()にそのまま委ねる）。
+  if (
+    !isWorkday ||
+    !Number.isFinite(normalStart) ||
+    !Number.isFinite(normalEnd) ||
+    !Number.isFinite(normalBreak) ||
+    !Number.isFinite(realLeaveStart) ||
+    !Number.isFinite(realLeaveEnd) ||
+    realLeaveStart >= realLeaveEnd
+  ) {
+    return calculate({
+      isWorkday,
+      normalStart,
+      normalEnd,
+      normalBreak,
+      leaveStart: realLeaveStart,
+      leaveEnd: realLeaveEnd,
+    });
+  }
+
+  const pattern = classifyPattern({ normalStart, normalEnd, leaveStart: realLeaveStart, leaveEnd: realLeaveEnd });
+
+  if (pattern !== 'AM' && pattern !== 'PM') {
+    // OUT_OF_RANGE / FULL_DAY / MIDDLE は休憩の付け替えが発生しないため、現実の時刻をそのまま渡す。
+    return calculate({
+      isWorkday,
+      normalStart,
+      normalEnd,
+      normalBreak,
+      leaveStart: realLeaveStart,
+      leaveEnd: realLeaveEnd,
+    });
+  }
+
+  const standardMinutes = normalEnd - normalStart - normalBreak;
+  const half = standardMinutes / 2;
+  const deadZoneStart = half;
+  const deadZoneEnd = half + normalBreak; // 半開区間 [deadZoneStart, deadZoneEnd)
+
+  // 現実に職場にいた時間（分）。AM側(有給が始業側)なら有給終了〜通常終業、
+  // PM側(有給が終業側)なら通常始業〜有給開始。
+  const workMinutesPresent = pattern === 'AM' ? normalEnd - realLeaveEnd : realLeaveStart - normalStart;
+
+  let actualMinutes;
+  let deadZoneAdjustment = false;
+
+  if (workMinutesPresent < deadZoneStart) {
+    actualMinutes = workMinutesPresent;
+  } else if (workMinutesPresent >= deadZoneEnd) {
+    actualMinutes = workMinutesPresent - normalBreak;
+  } else {
+    if (tookBreakDuringWork === undefined || tookBreakDuringWork === null) {
+      const workWindowStart = pattern === 'AM' ? realLeaveEnd : normalStart;
+      const workWindowEnd = pattern === 'AM' ? normalEnd : realLeaveStart;
+      return {
+        status: 'NEEDS_BREAK_CONFIRMATION',
+        data: { pattern, workWindowStart, workWindowEnd, normalBreak, realLeaveStart, realLeaveEnd },
+      };
+    }
+    actualMinutes = tookBreakDuringWork ? workMinutesPresent - normalBreak : workMinutesPresent;
+    deadZoneAdjustment = true;
+  }
+
+  // calculate()が期待する「申請用の有給開始・終了」を、実働時間から合成する。
+  const legacyLeaveMinutes = standardMinutes - actualMinutes;
+  let legacyLeaveStart;
+  let legacyLeaveEnd;
+  if (pattern === 'AM') {
+    legacyLeaveStart = normalStart;
+    legacyLeaveEnd = normalStart + legacyLeaveMinutes;
+  } else {
+    legacyLeaveStart = normalEnd - legacyLeaveMinutes;
+    legacyLeaveEnd = normalEnd;
+  }
+
+  const result = calculate({
+    isWorkday,
+    normalStart,
+    normalEnd,
+    normalBreak,
+    leaveStart: legacyLeaveStart,
+    leaveEnd: legacyLeaveEnd,
+  });
+
+  if (result.data) {
+    result.data.realLeaveStart = realLeaveStart;
+    result.data.realLeaveEnd = realLeaveEnd;
+    result.data.deadZoneAdjustment = deadZoneAdjustment;
+    result.data.normalBreak = normalBreak;
+  }
+  return result;
+}
