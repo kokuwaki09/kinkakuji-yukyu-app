@@ -315,6 +315,79 @@ test('TC13: 全休（丸1日） → 対象外案内', () => {
   assert.equal(result.status, 'FULL_DAY_OUT_OF_SCOPE');
 });
 
+// --- 半日有休の境界（会社確認済み・R8.7就業規則第46条） ---
+//
+// 就業規則第46条は「午前：始業から4時間／午後：終業までさかのぼって4時間、ただし所定6時間の
+// 者は3時間」と定めるが、これは個別パターンごとの固定値ではなく、「その日の所定労働時間の
+// 半分以内は半日有休、半分を超えると全日扱い」という一般ルールの結果であることを会社に確認済み
+// （8時間÷2＝4時間、6時間÷2＝3時間は、この一般ルールからの帰結）。
+// 既存の calculate() の isHalf = leaveMinutes <= standardMinutes / 2 は、この確認済みルールと
+// 一致しているため変更しない。以下は、就業規則に記載されている訪問職員の勤務パターン
+// （A〜F・J・K・L・M・N）それぞれについて、半日/全日の境界が会社確認どおりになることを
+// 固定する回帰テスト。
+test('半日境界(会社確認済み): A〜F 所定8時間 → 4時間以内は半日、超えると全日', () => {
+  const half = calculate(makeInput({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, leaveStart: '14:00', leaveEnd: '18:00' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 240); // 4時間ちょうど
+
+  const full = calculate(makeInput({ normalStart: '09:00', normalEnd: '18:00', normalBreak: 60, leaveStart: '13:30', leaveEnd: '18:00' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 270); // 4時間30分
+});
+
+test('半日境界(会社確認済み): J(8:30〜14:30・休憩なし) 所定6時間 → 3時間以内は半日、超えると全日', () => {
+  const half = calculate(makeInput({ normalStart: '08:30', normalEnd: '14:30', normalBreak: 0, leaveStart: '11:30', leaveEnd: '14:30' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 180); // 3時間ちょうど
+
+  const full = calculate(makeInput({ normalStart: '08:30', normalEnd: '14:30', normalBreak: 0, leaveStart: '11:00', leaveEnd: '14:30' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 210); // 3時間30分
+});
+
+test('半日境界(会社確認済み): K(9:00〜15:00・休憩なし) 所定6時間 → 3時間以内は半日、超えると全日', () => {
+  const half = calculate(makeInput({ normalStart: '09:00', normalEnd: '15:00', normalBreak: 0, leaveStart: '12:00', leaveEnd: '15:00' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 180);
+
+  const full = calculate(makeInput({ normalStart: '09:00', normalEnd: '15:00', normalBreak: 0, leaveStart: '11:30', leaveEnd: '15:00' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 210);
+});
+
+test('半日境界(会社確認済み): L(9:00〜12:00・休憩なし) 所定3時間 → 1時間30分以内は半日、超えると全日', () => {
+  const half = calculate(makeInput({ normalStart: '09:00', normalEnd: '12:00', normalBreak: 0, leaveStart: '10:30', leaveEnd: '12:00' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 90); // 1時間30分ちょうど
+
+  const full = calculate(makeInput({ normalStart: '09:00', normalEnd: '12:00', normalBreak: 0, leaveStart: '10:00', leaveEnd: '12:00' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 120); // 2時間
+});
+
+test('半日境界(会社確認済み): M(9:00〜16:00・休憩45分) 所定6時間15分 → 境界は3時間7分30秒(30分単位では跨げないため3時間/3時間30分で確認)', () => {
+  // 境界(187.5分)はLEAVE_UNIT_MINUTES(30分)の倍数ではないため、ちょうど境界の値は
+  // 入力できない。境界を挟む2つの有給時間(3時間/3時間30分)で半日・全日が
+  // 正しく切り替わることを確認する。
+  const half = calculate(makeInput({ normalStart: '09:00', normalEnd: '16:00', normalBreak: 45, leaveStart: '13:00', leaveEnd: '16:00' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 180); // 3時間 < 3時間7分30秒
+
+  const full = calculate(makeInput({ normalStart: '09:00', normalEnd: '16:00', normalBreak: 45, leaveStart: '12:30', leaveEnd: '16:00' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 210); // 3時間30分 > 3時間7分30秒
+});
+
+test('半日境界(会社確認済み): N(9:00〜17:00・休憩60分) 所定7時間 → 3時間30分以内は半日、超えると全日', () => {
+  const half = calculate(makeInput({ normalStart: '09:00', normalEnd: '17:00', normalBreak: 60, leaveStart: '13:30', leaveEnd: '17:00' }));
+  assert.equal(half.status, 'HALF');
+  assert.equal(half.data.leaveMinutes, 210); // 3時間30分ちょうど
+
+  const full = calculate(makeInput({ normalStart: '09:00', normalEnd: '17:00', normalBreak: 60, leaveStart: '13:00', leaveEnd: '17:00' }));
+  assert.equal(full.status, 'FULL');
+  assert.equal(full.data.leaveMinutes, 240); // 4時間
+});
+
 // --- 追加のバリデーション・境界テスト ---
 
 test('有給開始が有給終了以降 → エラー', () => {
@@ -607,6 +680,19 @@ test('空白地帯: 「休憩を取った」と回答 → 全日扱い、スケ�
   assert.equal(r.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_00);
   assert.equal(r.data.leaveSideBreak, 0);
   assert.equal(r.data.deadZoneAdjustment, true);
+});
+
+test('空白地帯: 「休憩を取った」と回答した場合も、有給時間が30分単位でなければ既存ルールどおりERRORになる', () => {
+  // calculate()を経由しない結果合成経路でも、既存の「有給は30分単位」ルール(calculate()側)を
+  // 迂回してしまわないことを確認する回帰テスト。
+  const r = calculateFromRealTimes(
+    realBase({
+      normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
+      realLeaveStart: '13:07', realLeaveEnd: '18:00', tookBreakDuringWork: true,
+    }),
+  );
+  assert.equal(r.status, 'ERROR');
+  assert.match(r.message, /30分単位/);
 });
 
 test('空白地帯: 「休憩を取っていない」と回答 → 半日有休、スケジュールは実際の在籍時刻のまま・休憩0分', () => {

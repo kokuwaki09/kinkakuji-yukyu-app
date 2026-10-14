@@ -59,7 +59,8 @@ export const LEAVE_UNIT_MINUTES = 30;
 //
 // 【誤用防止メモ】この関数は現在、calculator.js の「全日扱い」判定内でのみ、
 // actualMinutes（残る勤務時間）を引数として呼び出されている。「全日扱い」は
-// leaveMinutes > standardMinutes/2 の場合に限られるため、actualMinutes は必ず
+// leaveMinutes > standardMinutes/2 の場合に限られる（半日/全日の境界＝所定労働時間の半分、
+// R8.7就業規則第46条、会社確認済み）ため、actualMinutes は必ず
 // standardMinutes/2 未満になる。このアプリが想定する通常所定労働時間は最大8時間(480分)
 // のため、actualMinutes は常に240分未満となり、「480分以上」の分岐には実務上到達しない
 // （tests/calculator.test.js の不変条件テストで確認済み）。

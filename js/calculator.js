@@ -177,6 +177,9 @@ export function calculate(input) {
   }
 
   const actualMinutes = standardMinutes - leaveMinutes;
+  // 半日/全日の境界＝所定労働時間の半分。R8.7就業規則第46条（午前/午後4時間、所定6時間の者は
+  // 3時間）は、この「所定労働時間の半分」という一般ルールの結果であることを会社に確認済み
+  // （訪問職員の勤務パターンA〜F・J・K・L・M・N全てで一致。tests/calculator.test.js参照）。
   const isHalf = leaveMinutes <= standardMinutes / 2;
 
   if (isHalf) {
@@ -361,6 +364,7 @@ export function calculateFromRealTimes(input) {
   }
 
   const standardMinutes = normalEnd - normalStart - normalBreak;
+  // 半日/全日の境界＝所定労働時間の半分（R8.7就業規則第46条、会社確認済み。calculate()のisHalfと同一）。
   const half = standardMinutes / 2;
   const deadZoneStart = half;
   const deadZoneEnd = half + normalBreak; // 半開区間 [deadZoneStart, deadZoneEnd)
@@ -461,6 +465,15 @@ function buildDeadZoneLiteralResult({
   scheduleStart, scheduleEnd, scheduleBreak, actualMinutes, auxStart, auxEnd, leaveSideBreak,
 }) {
   const leaveMinutes = auxEnd - auxStart;
+
+  // calculate()と同じ「有給は30分単位」ルールを、この経路(calculate()を経由しない)でも適用する。
+  if (leaveMinutes % LEAVE_UNIT_MINUTES !== 0) {
+    return {
+      status: 'ERROR',
+      message: `有給時間は30分単位にしてください（現在の入力: ${formatDuration(leaveMinutes)}）。`,
+    };
+  }
+
   const auxItemName = resolveFullDayItemName(leaveSideBreak);
 
   return {

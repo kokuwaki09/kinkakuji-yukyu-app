@@ -297,33 +297,6 @@ function renderConfirmBlock(data) {
   `;
 }
 
-// 「現実に働く・休む時刻」だけでは半休/全日扱いを判定できない際どい時間帯（空白地帯）で、
-// 休憩の回答を踏まえて計算した場合、スケジュール申請の時刻・休憩が実際の在席時間と
-// ずれることがある。そのままだと分かりにくいため、理由を短く表示する。
-function renderAdjustmentNote(data) {
-  if (!data.deadZoneAdjustment) return '';
-
-  const realStart = data.pattern === 'AM' ? data.realLeaveEnd : data.scheduleStart;
-  const realEnd = data.pattern === 'AM' ? data.scheduleEnd : data.realLeaveStart;
-
-  if (realStart === data.scheduleStart && realEnd === data.scheduleEnd) return '';
-
-  const scheduleText = `${minutesToTimeString(data.scheduleStart)}〜${minutesToTimeString(data.scheduleEnd)}・休憩${formatBreakMinutes(data.scheduleBreak)}`;
-  const realText = `${minutesToTimeString(realStart)}〜${minutesToTimeString(realEnd)}`;
-
-  const reason =
-    data.classification === 'FULL'
-      ? `実際に取得した通常休憩${formatBreakMinutes(data.normalBreak)}は「${data.auxItemName}」側で処理するため`
-      : `通常休憩${formatBreakMinutes(data.normalBreak)}をスケジュール申請側に含めて計算するため`;
-
-  return `
-    <p class="adjustment-note">
-      ※実際に職場にいらっしゃった時間は ${realText} ですが、${reason}、
-      スケジュール申請は ${scheduleText} として申請してください。
-    </p>
-  `;
-}
-
 function renderHalfResult(data) {
   const itemNameHtml = `<p class="result-item-name">${escapeHtml(data.auxItemName)}</p>`;
 
@@ -333,7 +306,6 @@ function renderHalfResult(data) {
       <p class="result-headline">半日有休</p>
 
       ${renderScheduleBlock(data)}
-      ${renderAdjustmentNote(data)}
       ${renderAuxBlock(data, itemNameHtml)}
       ${renderConfirmBlock(data)}
 
@@ -366,7 +338,6 @@ function renderFullResult(data) {
       <p class="result-headline">全日扱い</p>
 
       ${renderScheduleBlock(data)}
-      ${renderAdjustmentNote(data)}
       ${renderAuxBlock(data, itemNameHtml)}
       <p class="leave-side-break-box">有給側で処理する休憩：${formatDuration(data.leaveSideBreak)}</p>
       ${undeterminedBoxHtml}
