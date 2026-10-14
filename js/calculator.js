@@ -415,6 +415,14 @@ export function calculateFromRealTimes(input) {
     isWorkday, normalStart, normalEnd, normalBreak, pattern, standardMinutes,
     actualMinutes: presenceMinutes, realLeaveStart, realLeaveEnd, deadZoneAdjustment: true,
   });
+  if (halfCandidate.data) {
+    // スケジュール側の表示だけは、実際の在籍時間帯(presence)のまま・休憩0分にする
+    // （勤革時に実際に入力する際の書式として、現実の時刻をずらさないことが会社側で確認されたため。
+    //   補助項目の時間帯・有給時間・判定は変更しない）。
+    halfCandidate.data.scheduleStart = presenceStart;
+    halfCandidate.data.scheduleEnd = presenceEnd;
+    halfCandidate.data.scheduleBreak = 0;
+  }
   const fullCandidate = buildDeadZoneLiteralResult({
     pattern, standardMinutes, normalBreak, realLeaveStart, realLeaveEnd,
     scheduleStart: presenceStart, scheduleEnd: presenceEnd, scheduleBreak: 0,

@@ -618,14 +618,15 @@ test('空白地帯: 「休憩を取っていない」と回答 → 勤革時へ�
   );
   assert.equal(r.status, 'HALF_OR_FULL_CHOICE');
 
-  // 候補①: 半日有休として申請する場合(従来どおりの合成ロジック)
+  // 候補①: 半日有休として申請する場合。スケジュールは実際の在籍時刻のまま・休憩0分で、
+  // 補助項目(14:30〜18:00)との間の1時間は明示的には埋めない(現場で確認された入力方法のまま)。
   const half = r.data.half;
   assert.equal(half.status, 'HALF');
   assert.equal(half.data.actualMinutes, 270);
   assert.equal(half.data.leaveMinutes, 210);
   assert.equal(minutesToTimeString(half.data.scheduleStart), '09:00');
-  assert.equal(minutesToTimeString(half.data.scheduleEnd), '14:30');
-  assert.equal(half.data.scheduleBreak, 60);
+  assert.equal(minutesToTimeString(half.data.scheduleEnd), '13:30');
+  assert.equal(half.data.scheduleBreak, 0);
   assert.equal(minutesToTimeString(half.data.auxStart), '14:30');
   assert.equal(minutesToTimeString(half.data.auxEnd), '18:00');
   assert.equal(half.data.auxItemName, AUX_ITEM_NAMES.HALF);
@@ -674,9 +675,9 @@ test('空白地帯: AM側でも同じ考え方が成立する(PM側と対称)', 
   const half = rNotTaken.data.half;
   assert.equal(half.status, 'HALF');
   assert.equal(half.data.actualMinutes, 270);
-  assert.equal(minutesToTimeString(half.data.scheduleStart), '12:30');
+  assert.equal(minutesToTimeString(half.data.scheduleStart), '13:30');
   assert.equal(minutesToTimeString(half.data.scheduleEnd), '18:00');
-  assert.equal(half.data.scheduleBreak, 60);
+  assert.equal(half.data.scheduleBreak, 0);
 
   const full = rNotTaken.data.full;
   assert.equal(full.status, 'FULL');
@@ -793,12 +794,15 @@ test('空白地帯の全件検証: ①スケジュール+補助項目の時間�
       });
       assert.equal(pmNotTaken.status, 'HALF_OR_FULL_CHOICE', `PM休憩なし w=${w} status`);
 
-      // 候補①(半日有休): 実働+有給=所定、休憩はスケジュール側に通常休憩そのまま
+      // 候補①(半日有休): 実働+有給=所定。スケジュールは実際の在籍時刻のまま・休憩0分
+      // (補助項目との間の通常休憩分は明示的には埋めない、現場で確認された入力方法のまま)。
       const pmHalf = pmNotTaken.data.half;
       assert.equal(pmHalf.status, 'HALF', `PM休憩なし①半日 w=${w}`);
       assert.equal(pmHalf.data.actualMinutes + pmHalf.data.leaveMinutes, standardMinutes, `① PM半日 w=${w}`);
       assert.ok(pmHalf.data.leaveMinutes <= standardMinutes / 2, `② PM半日 w=${w}`);
-      assert.equal(pmHalf.data.scheduleBreak, p.normalBreak, `③ PM半日 w=${w}`);
+      assert.equal(pmHalf.data.scheduleStart, normalStart, `③ PM半日 scheduleStart w=${w}`);
+      assert.equal(pmHalf.data.scheduleEnd, pmLeaveStart, `③ PM半日 scheduleEnd w=${w}`);
+      assert.equal(pmHalf.data.scheduleBreak, 0, `③ PM半日 w=${w}`);
 
       // 候補②(全日扱い): スケジュール・補助項目とも在籍・不在時刻のまま、休憩は補助項目側へ
       const pmFull = pmNotTaken.data.full;
@@ -816,7 +820,9 @@ test('空白地帯の全件検証: ①スケジュール+補助項目の時間�
       assert.equal(amHalf.status, 'HALF', `AM休憩なし①半日 w=${w}`);
       assert.equal(amHalf.data.actualMinutes + amHalf.data.leaveMinutes, standardMinutes, `① AM半日 w=${w}`);
       assert.ok(amHalf.data.leaveMinutes <= standardMinutes / 2, `② AM半日 w=${w}`);
-      assert.equal(amHalf.data.scheduleBreak, p.normalBreak, `③ AM半日 w=${w}`);
+      assert.equal(amHalf.data.scheduleStart, amLeaveEnd, `③ AM半日 scheduleStart w=${w}`);
+      assert.equal(amHalf.data.scheduleEnd, normalEnd, `③ AM半日 scheduleEnd w=${w}`);
+      assert.equal(amHalf.data.scheduleBreak, 0, `③ AM半日 w=${w}`);
 
       const amFull = amNotTaken.data.full;
       assert.equal(amFull.status, 'FULL', `AM休憩なし②全日 w=${w}`);
