@@ -250,7 +250,8 @@ function renderScheduleBlock(data) {
           <div class="value">${minutesToTimeString(data.scheduleEnd)}</div>
         </div>
       </div>
-      <p class="result-break-line">休憩：${formatBreakMinutes(data.scheduleBreak)}</p>
+      <p class="result-break-line">勤革時申請欄に入力する休憩：${formatBreakMinutes(data.scheduleBreak)}</p>
+      <p class="result-break-note">※実際に取った休憩時間と、勤革時の申請欄に入力する休憩時間は、会社ルール上異なる場合があります。</p>
     </div>
   `;
 }

@@ -282,6 +282,12 @@ select {
   color: var(--color-text-sub);
 }
 
+.result-break-note {
+  margin: 2px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-sub);
+}
+
 .result-leave-minutes {
   text-align: center;
   margin-top: 10px;
