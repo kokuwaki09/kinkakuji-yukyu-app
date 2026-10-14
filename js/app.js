@@ -222,6 +222,9 @@ function renderResult(result) {
     case 'FULL':
       el.resultSection.innerHTML = renderFullResult(result.data);
       return;
+    case 'HALF_OR_FULL_CHOICE':
+      el.resultSection.innerHTML = renderChoiceResult(result.data);
+      return;
     default:
       el.resultSection.innerHTML = renderNotice('notice-error', 'エラー', '想定外の状態です。入力しなおしてください。');
   }
@@ -276,6 +279,15 @@ function renderAuxBlock(data, itemNameHtml) {
 }
 
 function renderConfirmBlock(data) {
+  const sum = data.actualMinutes + data.leaveMinutes;
+  const matchesStandard = sum === data.standardMinutes;
+  // 空白地帯で「休憩なし・全日扱い」として申請する候補は、スケジュール・補助項目の
+  // 双方を実際の在籍・不在時刻のまま使うため、実働+有給が所定労働時間を超える
+  // （通常休憩の分だけ重なる）。その場合は誤解を招く「計算一致」とは表示しない。
+  const verifyText = matchesStandard
+    ? `実働 ${formatDuration(data.actualMinutes)} + 有給 ${formatDuration(data.leaveMinutes)} = 所定 ${formatDuration(data.standardMinutes)} ✓ 計算一致`
+    : `実働 ${formatDuration(data.actualMinutes)} + 有給 ${formatDuration(data.leaveMinutes)} = ${formatDuration(sum)}` +
+      `（所定${formatDuration(data.standardMinutes)}＋通常休憩${formatDuration(data.normalBreak)}。休憩が有給側にも含まれるため）`;
   return `
     <div class="result-section-block">
       <p class="result-block-title">確認</p>
@@ -290,8 +302,7 @@ function renderConfirmBlock(data) {
         </div>
       </div>
       <div class="verify-box">
-        実働 ${formatDuration(data.actualMinutes)} + 有給 ${formatDuration(data.leaveMinutes)}
-        = 所定 ${formatDuration(data.standardMinutes)} ✓ 計算一致
+        ${verifyText}
       </div>
     </div>
   `;
@@ -374,6 +385,23 @@ function renderFullResult(data) {
 
       ${renderDetails(data)}
     </div>
+  `;
+}
+
+// 「休憩を取っていない」と回答した場合、勤革時への正しい申請方法が2通りありうるため、
+// 半日有休・全日扱いの両方を候補として並べて表示し、どちらで申請するかは利用者に選んでもらう。
+function renderChoiceResult(data) {
+  return `
+    <div class="notice notice-info">
+      <p style="margin:0;">
+        このケースは、勤革時への申請方法が2通り考えられます。どちらも正しい申請方法として扱われるため、
+        以下の2つの候補から選んで申請してください。
+      </p>
+    </div>
+    <p class="choice-label">候補① 半日有休として申請する場合</p>
+    ${renderHalfResult(data.half.data)}
+    <p class="choice-label">候補② 全日扱いとして申請する場合</p>
+    ${renderFullResult(data.full.data)}
   `;
 }
 
