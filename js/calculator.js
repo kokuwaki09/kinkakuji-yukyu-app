@@ -301,12 +301,12 @@ export function calculate(input) {
  * を返す。この範囲の外では、質問なしで自動的に判定できる。
  *
  * 空白地帯での回答後の扱いは、現場（勤革時）での実際の入力方法の確認に基づく。
- * - 「休憩を取った」: スケジュール申請は実際に職場にいた時刻・休憩も通常休憩のまま。
- *   休憩はスケジュール側で処理済みのため、補助項目側の休憩は0分（全日有休・休憩00分取得者）。
- * - 「休憩を取っていない」: 勤革時への正しい申請方法が2通りありうるため、
- *   半日有休として申請する場合（half）と、全日扱いとして申請する場合（full）の
- *   両方を候補として返す（status: 'HALF_OR_FULL_CHOICE'）。利用者がどちらで
- *   申請するかを選ぶ。
+ * いずれの場合も、スケジュール申請は実際に職場にいた時刻（presence）をずらさず
+ * そのまま使う。
+ * - 「休憩を取った」: 全日扱い。通常休憩はスケジュール側に明示する。休憩はスケジュール側で
+ *   処理済みのため、補助項目側の休憩は0分（全日有休・休憩00分取得者）。
+ * - 「休憩を取っていない」: 半日有休。スケジュール側の休憩は0分とし、補助項目の時間帯・
+ *   有給時間・判定は従来どおりの合成ロジックで決める。
  *
  * @param {object} input
  * @param {boolean} input.isWorkday
@@ -320,10 +320,7 @@ export function calculate(input) {
  * @returns {object} calculate()と同じ形式の判定結果。
  *   加えて、statusが'NEEDS_BREAK_CONFIRMATION'の場合は
  *   data: { pattern, workWindowStart, workWindowEnd, normalBreak, realLeaveStart, realLeaveEnd } を返す。
- *   statusが'HALF_OR_FULL_CHOICE'の場合は
- *   data: { pattern, realLeaveStart, realLeaveEnd, half, full } を返す
- *   （half・fullはそれぞれ通常の判定結果と同じ形式）。
- *   半休/全日扱いとして一意に計算できた場合は、data.deadZoneAdjustment（空白地帯の
+ *   半休/全日扱いとして計算できた場合は、data.deadZoneAdjustment（空白地帯の
  *   回答を使って計算したかどうか）と data.realLeaveStart / data.realLeaveEnd を追加する。
  */
 export function calculateFromRealTimes(input) {
@@ -410,30 +407,20 @@ export function calculateFromRealTimes(input) {
     });
   }
 
-  // 休憩を取っていない場合: 勤革時への正しい申請方法が2通りありうるため、両方を候補として返す。
-  const halfCandidate = buildViaLegacyCalculate({
+  // 休憩を取っていない場合: 半日有休として申請する(従来どおりの合成ロジックで判定・補助項目の
+  // 時間帯・有給時間を決める)。スケジュール側の表示だけは、実際の在籍時間帯(presence)のまま・
+  // 休憩0分にする（勤革時に実際に入力する際の書式として、現実の時刻をずらさないことが
+  // 会社側で確認されたため）。
+  const result = buildViaLegacyCalculate({
     isWorkday, normalStart, normalEnd, normalBreak, pattern, standardMinutes,
     actualMinutes: presenceMinutes, realLeaveStart, realLeaveEnd, deadZoneAdjustment: true,
   });
-  if (halfCandidate.data) {
-    // スケジュール側の表示だけは、実際の在籍時間帯(presence)のまま・休憩0分にする
-    // （勤革時に実際に入力する際の書式として、現実の時刻をずらさないことが会社側で確認されたため。
-    //   補助項目の時間帯・有給時間・判定は変更しない）。
-    halfCandidate.data.scheduleStart = presenceStart;
-    halfCandidate.data.scheduleEnd = presenceEnd;
-    halfCandidate.data.scheduleBreak = 0;
+  if (result.data) {
+    result.data.scheduleStart = presenceStart;
+    result.data.scheduleEnd = presenceEnd;
+    result.data.scheduleBreak = 0;
   }
-  const fullCandidate = buildDeadZoneLiteralResult({
-    pattern, standardMinutes, normalBreak, realLeaveStart, realLeaveEnd,
-    scheduleStart: presenceStart, scheduleEnd: presenceEnd, scheduleBreak: 0,
-    actualMinutes: presenceMinutes,
-    auxStart: absenceStart, auxEnd: absenceEnd, leaveSideBreak: normalBreak,
-  });
-
-  return {
-    status: 'HALF_OR_FULL_CHOICE',
-    data: { pattern, realLeaveStart, realLeaveEnd, half: halfCandidate, full: fullCandidate },
-  };
+  return result;
 }
 
 // calculate()が期待する「申請用の有給開始・終了」を、実働時間から合成して呼び出す。

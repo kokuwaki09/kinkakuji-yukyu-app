@@ -609,41 +609,26 @@ test('空白地帯: 「休憩を取った」と回答 → 全日扱い、スケ�
   assert.equal(r.data.deadZoneAdjustment, true);
 });
 
-test('空白地帯: 「休憩を取っていない」と回答 → 勤革時への正しい申請方法が2通りあるため、半日有休・全日扱いの両方を候補として返す', () => {
+test('空白地帯: 「休憩を取っていない」と回答 → 半日有休、スケジュールは実際の在籍時刻のまま・休憩0分', () => {
+  // 勤革時への実際の入力方法として現場で確認された内容: スケジュールは実際に職場にいた時刻
+  // (9:00〜13:00)のまま・休憩0分とし、補助項目(14:30〜18:00)との間の1時間は明示的には
+  // 埋めない。判定・補助項目の時間帯・有給時間は従来どおりの合成ロジックで決める。
   const r = calculateFromRealTimes(
     realBase({
       normalStart: '09:00', normalEnd: '18:00', normalBreak: 60,
       realLeaveStart: '13:30', realLeaveEnd: '18:00', tookBreakDuringWork: false,
     }),
   );
-  assert.equal(r.status, 'HALF_OR_FULL_CHOICE');
-
-  // 候補①: 半日有休として申請する場合。スケジュールは実際の在籍時刻のまま・休憩0分で、
-  // 補助項目(14:30〜18:00)との間の1時間は明示的には埋めない(現場で確認された入力方法のまま)。
-  const half = r.data.half;
-  assert.equal(half.status, 'HALF');
-  assert.equal(half.data.actualMinutes, 270);
-  assert.equal(half.data.leaveMinutes, 210);
-  assert.equal(minutesToTimeString(half.data.scheduleStart), '09:00');
-  assert.equal(minutesToTimeString(half.data.scheduleEnd), '13:30');
-  assert.equal(half.data.scheduleBreak, 0);
-  assert.equal(minutesToTimeString(half.data.auxStart), '14:30');
-  assert.equal(minutesToTimeString(half.data.auxEnd), '18:00');
-  assert.equal(half.data.auxItemName, AUX_ITEM_NAMES.HALF);
-
-  // 候補②: 全日扱いとして申請する場合(スケジュールは実際の在籍時刻のまま・休憩0分、
-  // 補助項目側で通常休憩をまるごと処理する)
-  const full = r.data.full;
-  assert.equal(full.status, 'FULL');
-  assert.equal(full.data.actualMinutes, 270);
-  assert.equal(full.data.leaveMinutes, 270);
-  assert.equal(minutesToTimeString(full.data.scheduleStart), '09:00');
-  assert.equal(minutesToTimeString(full.data.scheduleEnd), '13:30');
-  assert.equal(full.data.scheduleBreak, 0);
-  assert.equal(minutesToTimeString(full.data.auxStart), '13:30');
-  assert.equal(minutesToTimeString(full.data.auxEnd), '18:00');
-  assert.equal(full.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
-  assert.equal(full.data.leaveSideBreak, 60);
+  assert.equal(r.status, 'HALF');
+  assert.equal(r.data.actualMinutes, 270);
+  assert.equal(r.data.leaveMinutes, 210);
+  assert.equal(minutesToTimeString(r.data.scheduleStart), '09:00');
+  assert.equal(minutesToTimeString(r.data.scheduleEnd), '13:30');
+  assert.equal(r.data.scheduleBreak, 0);
+  assert.equal(minutesToTimeString(r.data.auxStart), '14:30');
+  assert.equal(minutesToTimeString(r.data.auxEnd), '18:00');
+  assert.equal(r.data.auxItemName, AUX_ITEM_NAMES.HALF);
+  assert.equal(r.data.deadZoneAdjustment, true);
 });
 
 test('空白地帯: AM側でも同じ考え方が成立する(PM側と対称)', () => {
@@ -670,24 +655,11 @@ test('空白地帯: AM側でも同じ考え方が成立する(PM側と対称)', 
       realLeaveStart: '09:00', realLeaveEnd: '13:30', tookBreakDuringWork: false,
     }),
   );
-  assert.equal(rNotTaken.status, 'HALF_OR_FULL_CHOICE');
-
-  const half = rNotTaken.data.half;
-  assert.equal(half.status, 'HALF');
-  assert.equal(half.data.actualMinutes, 270);
-  assert.equal(minutesToTimeString(half.data.scheduleStart), '13:30');
-  assert.equal(minutesToTimeString(half.data.scheduleEnd), '18:00');
-  assert.equal(half.data.scheduleBreak, 0);
-
-  const full = rNotTaken.data.full;
-  assert.equal(full.status, 'FULL');
-  assert.equal(full.data.actualMinutes, 270);
-  assert.equal(minutesToTimeString(full.data.scheduleStart), '13:30');
-  assert.equal(minutesToTimeString(full.data.scheduleEnd), '18:00');
-  assert.equal(full.data.scheduleBreak, 0);
-  assert.equal(minutesToTimeString(full.data.auxStart), '09:00');
-  assert.equal(minutesToTimeString(full.data.auxEnd), '13:30');
-  assert.equal(full.data.auxItemName, AUX_ITEM_NAMES.FULL_BREAK_60);
+  assert.equal(rNotTaken.status, 'HALF');
+  assert.equal(rNotTaken.data.actualMinutes, 270);
+  assert.equal(minutesToTimeString(rNotTaken.data.scheduleStart), '13:30');
+  assert.equal(minutesToTimeString(rNotTaken.data.scheduleEnd), '18:00');
+  assert.equal(rNotTaken.data.scheduleBreak, 0);
 });
 
 test('空白地帯: 境界値ちょうど(deadZoneStart)は質問が必要、1分外側(deadZoneStart-1)は自動判定される', () => {
@@ -787,53 +759,34 @@ test('空白地帯の全件検証: ①スケジュール+補助項目の時間�
       assert.equal(amTaken.data.scheduleBreak, pmTaken.data.scheduleBreak, `④ 休憩あり scheduleBreak対称 w=${w}`);
       assert.equal(amTaken.data.leaveSideBreak, pmTaken.data.leaveSideBreak, `④ 休憩あり leaveSideBreak対称 w=${w}`);
 
-      // --- 「休憩を取っていない」: PM側・AM側とも半日/全日の2候補(HALF_OR_FULL_CHOICE) ---
+      // --- 「休憩を取っていない」: PM側・AM側とも単一の半日有休結果 ---
+      // 実働+有給=所定。スケジュールは実際の在籍時刻のまま・休憩0分
+      // (補助項目との間の通常休憩分は明示的には埋めない、現場で確認された入力方法のまま)。
       const pmNotTaken = calculateFromRealTimes({
         isWorkday: true, normalStart, normalEnd, normalBreak: p.normalBreak,
         realLeaveStart: pmLeaveStart, realLeaveEnd: normalEnd, tookBreakDuringWork: false,
       });
-      assert.equal(pmNotTaken.status, 'HALF_OR_FULL_CHOICE', `PM休憩なし w=${w} status`);
-
-      // 候補①(半日有休): 実働+有給=所定。スケジュールは実際の在籍時刻のまま・休憩0分
-      // (補助項目との間の通常休憩分は明示的には埋めない、現場で確認された入力方法のまま)。
-      const pmHalf = pmNotTaken.data.half;
-      assert.equal(pmHalf.status, 'HALF', `PM休憩なし①半日 w=${w}`);
-      assert.equal(pmHalf.data.actualMinutes + pmHalf.data.leaveMinutes, standardMinutes, `① PM半日 w=${w}`);
-      assert.ok(pmHalf.data.leaveMinutes <= standardMinutes / 2, `② PM半日 w=${w}`);
-      assert.equal(pmHalf.data.scheduleStart, normalStart, `③ PM半日 scheduleStart w=${w}`);
-      assert.equal(pmHalf.data.scheduleEnd, pmLeaveStart, `③ PM半日 scheduleEnd w=${w}`);
-      assert.equal(pmHalf.data.scheduleBreak, 0, `③ PM半日 w=${w}`);
-
-      // 候補②(全日扱い): スケジュール・補助項目とも在籍・不在時刻のまま、休憩は補助項目側へ
-      const pmFull = pmNotTaken.data.full;
-      assert.equal(pmFull.status, 'FULL', `PM休憩なし②全日 w=${w}`);
-      assertFullLiteral(pmFull.data, standardMinutes, p.normalBreak, normalStart, pmLeaveStart, pmLeaveStart, normalEnd, `PM休憩なし②全日 w=${w}`);
-      assert.equal(pmFull.data.actualMinutes, w, `PM休憩なし②全日 actualMinutes w=${w}`);
+      assert.equal(pmNotTaken.status, 'HALF', `PM休憩なし w=${w} status`);
+      assert.equal(pmNotTaken.data.actualMinutes + pmNotTaken.data.leaveMinutes, standardMinutes, `① PM半日 w=${w}`);
+      assert.ok(pmNotTaken.data.leaveMinutes <= standardMinutes / 2, `② PM半日 w=${w}`);
+      assert.equal(pmNotTaken.data.scheduleStart, normalStart, `③ PM半日 scheduleStart w=${w}`);
+      assert.equal(pmNotTaken.data.scheduleEnd, pmLeaveStart, `③ PM半日 scheduleEnd w=${w}`);
+      assert.equal(pmNotTaken.data.scheduleBreak, 0, `③ PM半日 w=${w}`);
 
       const amNotTaken = calculateFromRealTimes({
         isWorkday: true, normalStart, normalEnd, normalBreak: p.normalBreak,
         realLeaveStart: normalStart, realLeaveEnd: amLeaveEnd, tookBreakDuringWork: false,
       });
-      assert.equal(amNotTaken.status, 'HALF_OR_FULL_CHOICE', `AM休憩なし w=${w} status`);
+      assert.equal(amNotTaken.status, 'HALF', `AM休憩なし w=${w} status`);
+      assert.equal(amNotTaken.data.actualMinutes + amNotTaken.data.leaveMinutes, standardMinutes, `① AM半日 w=${w}`);
+      assert.ok(amNotTaken.data.leaveMinutes <= standardMinutes / 2, `② AM半日 w=${w}`);
+      assert.equal(amNotTaken.data.scheduleStart, amLeaveEnd, `③ AM半日 scheduleStart w=${w}`);
+      assert.equal(amNotTaken.data.scheduleEnd, normalEnd, `③ AM半日 scheduleEnd w=${w}`);
+      assert.equal(amNotTaken.data.scheduleBreak, 0, `③ AM半日 w=${w}`);
 
-      const amHalf = amNotTaken.data.half;
-      assert.equal(amHalf.status, 'HALF', `AM休憩なし①半日 w=${w}`);
-      assert.equal(amHalf.data.actualMinutes + amHalf.data.leaveMinutes, standardMinutes, `① AM半日 w=${w}`);
-      assert.ok(amHalf.data.leaveMinutes <= standardMinutes / 2, `② AM半日 w=${w}`);
-      assert.equal(amHalf.data.scheduleStart, amLeaveEnd, `③ AM半日 scheduleStart w=${w}`);
-      assert.equal(amHalf.data.scheduleEnd, normalEnd, `③ AM半日 scheduleEnd w=${w}`);
-      assert.equal(amHalf.data.scheduleBreak, 0, `③ AM半日 w=${w}`);
-
-      const amFull = amNotTaken.data.full;
-      assert.equal(amFull.status, 'FULL', `AM休憩なし②全日 w=${w}`);
-      assertFullLiteral(amFull.data, standardMinutes, p.normalBreak, amLeaveEnd, normalEnd, normalStart, amLeaveEnd, `AM休憩なし②全日 w=${w}`);
-      assert.equal(amFull.data.actualMinutes, w, `AM休憩なし②全日 actualMinutes w=${w}`);
-
-      // ④ AM/PM対称(休憩なし、候補①②とも)
-      assert.equal(amHalf.data.actualMinutes, pmHalf.data.actualMinutes, `④ 休憩なし①半日 actualMinutes対称 w=${w}`);
-      assert.equal(amHalf.data.scheduleBreak, pmHalf.data.scheduleBreak, `④ 休憩なし①半日 scheduleBreak対称 w=${w}`);
-      assert.equal(amFull.data.actualMinutes, pmFull.data.actualMinutes, `④ 休憩なし②全日 actualMinutes対称 w=${w}`);
-      assert.equal(amFull.data.leaveSideBreak, pmFull.data.leaveSideBreak, `④ 休憩なし②全日 leaveSideBreak対称 w=${w}`);
+      // ④ AM/PM対称(休憩なし)
+      assert.equal(amNotTaken.data.actualMinutes, pmNotTaken.data.actualMinutes, `④ 休憩なし actualMinutes対称 w=${w}`);
+      assert.equal(amNotTaken.data.scheduleBreak, pmNotTaken.data.scheduleBreak, `④ 休憩なし scheduleBreak対称 w=${w}`);
     }
   }
 });
